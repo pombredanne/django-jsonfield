@@ -5,6 +5,8 @@ django-jsonfield is a reusable Django field that allows you to store validated J
 
 It silently takes care of serialization. To use, simply add the field to one of your models.
 
+**New: Python 3 support added!**
+
 Install
 -------
 
@@ -23,7 +25,6 @@ Usage
 
     class MyModel(models.Model):
       json = JSONField()
-
 
 Advanced Usage
 --------------
@@ -46,13 +47,56 @@ Other Fields
 
 If you need to use your JSON field in an index or other constraint, you can use **JSONCharField** which subclasses **CharField** instead of **TextField**. You'll also need to specify a **max_length** parameter if you use this field.
 
+
+Compatibility
+--------------
+
+django-jsonfield supports Python 2.7-Python 3.3 and Django 1.4+
+
+**Why doesn't it support Python 2.6?**
+
+You actually might be OK if you don't use an OrderedDict, but there are some issues with the simplejson API that make it cumbersome to support.
+
+**Why doesn't it support Django 1.3?**
+
+There was a bug that could only be fixed by a feature in Django 1.4. `Read More`_ if you're interested in the details.
+
+.. _Read More: https://github.com/bradjasper/django-jsonfield/issues/33
+
+
+Travis CI
+---------
+
+.. image:: https://travis-ci.org/bradjasper/django-jsonfield.png?branch=master
+
+
 Contact
 -------
+Web: http://bradjasper.com
 
-http://bradjasper.com
+Twitter: `@bradjasper`_
+
+Email: `contact@bradjasper.com`_
+
+
+
+.. _contact@bradjasper.com: mailto:contact@bradjasper.com
+.. _@bradjasper: https://twitter.com/bradjasper
 
 Changes
 -------
+
+v0.9.20, 11/14/2013 -- Fixed load_kwargs on form fields, added Django 1.6 to automated tests
+
+v0.9.19, 09/18/2013 -- Fixed changes to django.six.with_metaclass that broke django-jsonfield for Django 1.6
+
+v0.9.18, 08/23/2013 -- Fixed bugs with South datamigration
+
+v0.9.17, 06/07/2013 -- Fixed bugs in JSONCharField admin form
+
+v0.9.14/15/16, 04/29/2013 -- Python 3 support added!
+
+v0.9.11/12/13, 03/26/2013 -- PyPi changes
 
 v0.9.9/10/11, 03/21/2013 -- PyPi changes
 
