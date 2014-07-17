@@ -13,7 +13,10 @@ except ImportError:
     from django.utils import simplejson as json
 
 from django.forms import fields
-from django.forms.util import ValidationError
+try:
+    from django.forms.utils import ValidationError
+except ImportError:
+    from django.forms.util import ValidationError
 
 from .subclassing import SubfieldBase
 
@@ -40,7 +43,7 @@ class JSONFormFieldBase(object):
             raise ValidationError(_("Enter valid JSON"))
 
 
-class JSONFormField(JSONFormFieldBase, fields.Field):
+class JSONFormField(JSONFormFieldBase, fields.CharField):
     pass
 
 class JSONCharFormField(JSONFormFieldBase, fields.CharField):
@@ -61,7 +64,7 @@ class JSONFieldBase(six.with_metaclass(SubfieldBase, models.Field)):
     def pre_init(self, value, obj):
         """Convert a string value to JSON only if it needs to be deserialized.
 
-        SubfieldBase meteaclass has been modified to call this method instead of
+        SubfieldBase metaclass has been modified to call this method instead of
         to_python so that we can check the obj state and determine if it needs to be
         deserialized"""
 
@@ -69,7 +72,7 @@ class JSONFieldBase(six.with_metaclass(SubfieldBase, models.Field)):
             # Make sure the primary key actually exists on the object before
             # checking if it's empty. This is a special case for South datamigrations
             # see: https://github.com/bradjasper/django-jsonfield/issues/52
-            if not hasattr(obj, "pk") or obj.pk is not None:
+            if hasattr(obj, "pk") and obj.pk is not None:
                 if isinstance(value, six.string_types):
                     try:
                         return json.loads(value, **self.load_kwargs)
@@ -109,6 +112,9 @@ class JSONFieldBase(six.with_metaclass(SubfieldBase, models.Field)):
 
         field = super(JSONFieldBase, self).formfield(**kwargs)
 
+        if isinstance(field, JSONFormFieldBase):
+            field.load_kwargs = self.load_kwargs
+
         if not field.help_text:
             field.help_text = "Enter valid JSON"
 
@@ -140,12 +146,8 @@ class JSONFieldBase(six.with_metaclass(SubfieldBase, models.Field)):
             return super(JSONFieldBase, self).db_type(connection)
 
 class JSONField(JSONFieldBase, models.TextField):
-    """JSONField is a generic textfield that serializes/unserializes JSON objects"""
+    """JSONField is a generic textfield that serializes/deserializes JSON objects"""
     form_class = JSONFormField
-
-    def __init__(self, *args, **kwargs):
-        super(JSONField, self).__init__(*args, **kwargs)
-        self.form_class.load_kwargs = self.load_kwargs
 
     def dumps_for_display(self, value):
         kwargs = { "indent": 2 }
@@ -154,7 +156,7 @@ class JSONField(JSONFieldBase, models.TextField):
 
 
 class JSONCharField(JSONFieldBase, models.CharField):
-    """JSONCharField is a generic textfield that serializes/unserializes JSON objects,
+    """JSONCharField is a generic textfield that serializes/deserializes JSON objects,
     stored in the database like a CharField, which enables it to be used
     e.g. in unique keys"""
     form_class = JSONCharFormField
