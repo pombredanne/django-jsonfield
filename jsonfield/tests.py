@@ -1,6 +1,10 @@
 from decimal import Decimal
+import django
+from django import forms
 from django.core.serializers import deserialize, serialize
 from django.core.serializers.base import DeserializationError
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.test import TestCase
 try:
@@ -9,19 +13,39 @@ except ImportError:
     from django.utils import simplejson as json
 
 from .fields import JSONField, JSONCharField
-from django.forms.util import ValidationError
+try:
+    from django.forms.utils import ValidationError
+except ImportError:
+    from django.forms.util import ValidationError
+
+from django.utils.six import string_types
 
 from collections import OrderedDict
 
+
 class JsonModel(models.Model):
     json = JSONField()
-    default_json = JSONField(default={"check":12})
+    default_json = JSONField(default={"check": 12})
     complex_default_json = JSONField(default=[{"checkcheck": 1212}])
     empty_default = JSONField(default={})
 
+
+class GenericForeignKeyObj(models.Model):
+    name = models.CharField('Foreign Obj', max_length=255, null=True)
+
+
+class JSONModelWithForeignKey(models.Model):
+    json = JSONField(null=True)
+    foreign_obj = GenericForeignKey()
+    object_id = models.PositiveIntegerField(blank=True, null=True, db_index=True)
+    content_type = models.ForeignKey(ContentType, blank=True, null=True,
+                                     on_delete=models.CASCADE)
+
+
 class JsonCharModel(models.Model):
     json = JSONCharField(max_length=100)
-    default_json = JSONCharField(max_length=100, default={"check":34})
+    default_json = JSONCharField(max_length=100, default={"check": 34})
+
 
 class ComplexEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -34,10 +58,12 @@ class ComplexEncoder(json.JSONEncoder):
 
         return json.JSONEncoder.default(self, obj)
 
+
 def as_complex(dct):
     if '__complex__' in dct:
         return complex(dct['real'], dct['imag'])
     return dct
+
 
 class JSONModelCustomEncoders(models.Model):
     # A JSON field that can store complex numbers
@@ -45,6 +71,13 @@ class JSONModelCustomEncoders(models.Model):
         dump_kwargs={'cls': ComplexEncoder, "indent": 4},
         load_kwargs={'object_hook': as_complex},
     )
+
+
+class JSONModelWithForeignKeyTestCase(TestCase):
+    def test_object_create(self):
+        foreign_obj = GenericForeignKeyObj.objects.create(name='Brain')
+        JSONModelWithForeignKey.objects.create(foreign_obj=foreign_obj)
+
 
 class JSONFieldTest(TestCase):
     """JSONField Wrapper Tests"""
@@ -175,7 +208,11 @@ class JSONFieldTest(TestCase):
             '"fields": {"json": "{]", "default_json": "{]"}}]'
         with self.assertRaises(DeserializationError) as cm:
             next(deserialize('json', ser))
-        inner = cm.exception.args[0]
+        # Django 2.0+ uses PEP 3134 exception chaining
+        if django.VERSION < (2, 0,):
+            inner = cm.exception.args[0]
+        else:
+            inner = cm.exception.__context__
         self.assertTrue(isinstance(inner, ValidationError))
         self.assertEqual('Enter valid JSON', inner.messages[0])
 
@@ -194,7 +231,6 @@ class JSONFieldTest(TestCase):
         new_obj = self.json_model.objects.get(id=obj.id)
 
         self.assertEqual(new_obj.json, json_obj)
-
 
     def test_pass_by_reference_pollution(self):
         """Make sure the default parameter is copied rather than passed by reference"""
@@ -238,7 +274,6 @@ class JSONFieldTest(TestCase):
         self.assertEqual(model1.empty_default, {"hey": "now"})
 
 
-
 class JSONCharFieldTest(JSONFieldTest):
     json_model = JsonCharModel
 
@@ -248,11 +283,16 @@ class OrderedJsonModel(models.Model):
 
 
 class OrderedDictSerializationTest(TestCase):
-    ordered_dict = OrderedDict([
-        ('number', [1, 2, 3, 4]),
-        ('notes', True),
-    ])
-    expected_key_order = ['number', 'notes']
+    def setUp(self):
+        self.ordered_dict = OrderedDict([
+            ('number', [1, 2, 3, 4]),
+            ('notes', True),
+            ('alpha', True),
+            ('romeo', True),
+            ('juliet', True),
+            ('bravo', True),
+        ])
+        self.expected_key_order = ['number', 'notes', 'alpha', 'romeo', 'juliet', 'bravo']
 
     def test_ordered_dict_differs_from_normal_dict(self):
         self.assertEqual(list(self.ordered_dict.keys()), self.expected_key_order)
@@ -271,3 +311,82 @@ class OrderedDictSerializationTest(TestCase):
         self.assertEqual(list(mod.json.keys()), self.expected_key_order)
         mod_from_db = OrderedJsonModel.objects.get(id=mod.id)
         self.assertEqual(list(mod_from_db.json.keys()), self.expected_key_order)
+
+
+class JsonNotRequiredModel(models.Model):
+    json = JSONField(blank=True, null=True)
+
+
+class JsonNotRequiredForm(forms.ModelForm):
+    class Meta:
+        model = JsonNotRequiredModel
+        fields = '__all__'
+
+
+class JsonModelFormTest(TestCase):
+    def test_blank_form(self):
+        form = JsonNotRequiredForm(data={'json': ''})
+        self.assertFalse(form.has_changed())
+
+    def test_form_with_data(self):
+        form = JsonNotRequiredForm(data={'json': '{}'})
+        self.assertTrue(form.has_changed())
+
+
+class TestFieldAPIMethods(TestCase):
+    def test_get_db_prep_value_method_with_null(self):
+        json_field_instance = JSONField(null=True)
+        value = {'a': 1}
+        prepared_value = json_field_instance.get_db_prep_value(
+            value, connection=None, prepared=False)
+        self.assertIsInstance(prepared_value, string_types)
+        self.assertDictEqual(value, json.loads(prepared_value))
+        self.assertIs(json_field_instance.get_db_prep_value(
+            None, connection=None, prepared=True), None)
+        self.assertIs(json_field_instance.get_db_prep_value(
+            None, connection=None, prepared=False), None)
+
+    def test_get_db_prep_value_method_with_not_null(self):
+        json_field_instance = JSONField(null=False)
+        value = {'a': 1}
+        prepared_value = json_field_instance.get_db_prep_value(
+            value, connection=None, prepared=False)
+        self.assertIsInstance(prepared_value, string_types)
+        self.assertDictEqual(value, json.loads(prepared_value))
+        self.assertIs(json_field_instance.get_db_prep_value(
+            None, connection=None, prepared=True), None)
+        self.assertEqual(json_field_instance.get_db_prep_value(
+            None, connection=None, prepared=False), 'null')
+
+    def test_get_db_prep_value_method_skips_prepared_values(self):
+        json_field_instance = JSONField(null=False)
+        value = {'a': 1}
+        prepared_value = json_field_instance.get_db_prep_value(
+            value, connection=None, prepared=True)
+        self.assertIs(prepared_value, value)
+
+    def test_get_prep_value_always_json_dumps_if_not_null(self):
+        json_field_instance = JSONField(null=False)
+        value = {'a': 1}
+        prepared_value = json_field_instance.get_prep_value(value)
+        self.assertIsInstance(prepared_value, string_types)
+        self.assertDictEqual(value, json.loads(prepared_value))
+        already_json = json.dumps(value)
+        double_prepared_value = json_field_instance.get_prep_value(
+            already_json)
+        self.assertDictEqual(value,
+                             json.loads(json.loads(double_prepared_value)))
+        self.assertEqual(json_field_instance.get_prep_value(None), 'null')
+
+    def test_get_prep_value_can_return_none_if_null(self):
+        json_field_instance = JSONField(null=True)
+        value = {'a': 1}
+        prepared_value = json_field_instance.get_prep_value(value)
+        self.assertIsInstance(prepared_value, string_types)
+        self.assertDictEqual(value, json.loads(prepared_value))
+        already_json = json.dumps(value)
+        double_prepared_value = json_field_instance.get_prep_value(
+            already_json)
+        self.assertDictEqual(value,
+                             json.loads(json.loads(double_prepared_value)))
+        self.assertIs(json_field_instance.get_prep_value(None), None)

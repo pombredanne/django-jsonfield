@@ -1,5 +1,5 @@
-## This file was copied from django.db.models.fields.subclassing so that we could
-## change the Creator.__set__ behavior. Read the comment below for full details.
+# This file was copied from django.db.models.fields.subclassing so that we could
+# change the Creator.__set__ behavior. Read the comment below for full details.
 
 """
 Convenience routines for creating non-trivial Field subclasses, as well as
@@ -8,6 +8,7 @@ backwards compatibility utilities.
 Add SubfieldBase as the __metaclass__ for your Field subclass, implement
 to_python() and the other necessary methods and everything will work seamlessly.
 """
+
 
 class SubfieldBase(type):
     """
@@ -21,6 +22,7 @@ class SubfieldBase(type):
         )
         return new_class
 
+
 class Creator(object):
     """
     A placeholder class that provides a way to set the attribute on the model.
@@ -30,7 +32,7 @@ class Creator(object):
 
     def __get__(self, obj, type=None):
         if obj is None:
-            raise AttributeError('Can only be accessed via an instance.')
+            return self
         return obj.__dict__[self.field.name]
 
     def __set__(self, obj, value):
